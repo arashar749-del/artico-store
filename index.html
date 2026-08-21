@@ -1309,7 +1309,9 @@
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
-  <script>
+  <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
+<script>
     // ==================== STATE ====================
     const ADMIN_EMAIL = 'arashar749@gmail.com';
     const ADMIN_PASS = 'Arash@1391';
@@ -1324,47 +1326,134 @@
     };
 
     // ==================== INIT ====================
+    const firebaseConfig = {
+      apiKey: "AIzaSyDgT-t-uKfgIzVrxnLkK7VdefZa8ijHk20",
+      authDomain: "artico-store.firebaseapp.com",
+      databaseURL: "https://artico-store-default-rtdb.firebaseio.com",
+      projectId: "artico-store",
+      storageBucket: "artico-store.firebasestorage.app",
+      messagingSenderId: "289130112484",
+      appId: "1:289130112484:web:4b97a915d849af577ad3f1",
+      measurementId: "G-SDBEMWHS4P"
+    };
+
+    let firebaseDb = null;
+    try {
+      firebase.initializeApp(firebaseConfig);
+      firebaseDb = firebase.database();
+    } catch (e) {
+      console.error(e);
+    }
+
+    function asProductList(val) {
+      if (!val) return [];
+      if (Array.isArray(val)) return val.filter(Boolean);
+      return Object.values(val).filter(Boolean);
+    }
+
+    function seedDemoProducts() {
+      products = [
+        {
+          id: generateId(),
+          name: 'ساعت مچی کلاسیک مشکی',
+          price: 1250000,
+          stock: 8,
+          image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&h=400&fit=crop'
+        },
+        {
+          id: generateId(),
+          name: 'هدفون بلوتوث پرو',
+          price: 890000,
+          stock: 15,
+          image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400&h=400&fit=crop'
+        },
+        {
+          id: generateId(),
+          name: 'کیف چرمی مردانه',
+          price: 650000,
+          stock: 0,
+          image: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=400&h=400&fit=crop'
+        },
+        {
+          id: generateId(),
+          name: 'عینک آفتابی پولاریزه',
+          price: 420000,
+          stock: 22,
+          image: 'https://images.unsplash.com/photo-1572635196237-14b3f281503f?w=400&h=400&fit=crop'
+        }
+      ];
+    }
+
+    function refreshStoreUI() {
+      renderProducts();
+      updateSettingsUI();
+      if (typeof renderAdminProducts === 'function') {
+        try { renderAdminProducts(); } catch (e) {}
+      }
+    }
+
+    async function initCloud() {
+      if (!firebaseDb) {
+        if (products.length === 0) {
+          seedDemoProducts();
+          localStorage.setItem('artico_products', JSON.stringify(products));
+          renderProducts();
+        }
+        return;
+      }
+      try {
+        const snap = await firebaseDb.ref('store').once('value');
+        const data = snap.val();
+        const cloudProducts = asProductList(data && data.products);
+        if (cloudProducts.length) {
+          products = cloudProducts;
+          localStorage.setItem('artico_products', JSON.stringify(products));
+        } else if (products.length) {
+          await firebaseDb.ref('store/products').set(products);
+        } else {
+          seedDemoProducts();
+          localStorage.setItem('artico_products', JSON.stringify(products));
+          await firebaseDb.ref('store/products').set(products);
+        }
+        if (data && data.settings) {
+          settings = Object.assign({}, settings, data.settings);
+          localStorage.setItem('artico_settings', JSON.stringify(settings));
+        } else {
+          await firebaseDb.ref('store/settings').set(settings);
+        }
+        refreshStoreUI();
+        firebaseDb.ref('store/products').on('value', function(s2) {
+          const list = asProductList(s2.val());
+          if (!list.length) return;
+          products = list;
+          localStorage.setItem('artico_products', JSON.stringify(products));
+          refreshStoreUI();
+        });
+        firebaseDb.ref('store/settings').on('value', function(s2) {
+          const val = s2.val();
+          if (!val) return;
+          settings = Object.assign({}, settings, val);
+          localStorage.setItem('artico_settings', JSON.stringify(settings));
+          updateSettingsUI();
+        });
+      } catch (e) {
+        console.error(e);
+        if (products.length === 0) {
+          seedDemoProducts();
+          localStorage.setItem('artico_products', JSON.stringify(products));
+        }
+        refreshStoreUI();
+        showToast('اتصال به اینترنت برای همگام‌سازی برقرار نشد', 'error');
+      }
+    }
+
     function init() {
       loadData();
       renderProducts();
       renderCart();
       updateAuthUI();
       updateSettingsUI();
-      // Seed demo products if empty
-      if (products.length === 0) {
-        products = [
-          {
-            id: generateId(),
-            name: 'ساعت مچی کلاسیک مشکی',
-            price: 1250000,
-            stock: 8,
-            image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&h=400&fit=crop'
-          },
-          {
-            id: generateId(),
-            name: 'هدفون بلوتوث پرو',
-            price: 890000,
-            stock: 15,
-            image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400&h=400&fit=crop'
-          },
-          {
-            id: generateId(),
-            name: 'کیف چرمی مردانه',
-            price: 650000,
-            stock: 0,
-            image: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=400&h=400&fit=crop'
-          },
-          {
-            id: generateId(),
-            name: 'عینک آفتابی پولاریزه',
-            price: 420000,
-            stock: 22,
-            image: 'https://images.unsplash.com/photo-1572635196237-14b3f281503f?w=400&h=400&fit=crop'
-          }
-        ];
-        saveProducts();
-        renderProducts();
-      }
+      initCloud();
     }
 
     function generateId() {
@@ -1386,6 +1475,11 @@
 
     function saveProducts() {
       localStorage.setItem('artico_products', JSON.stringify(products));
+      if (firebaseDb) {
+        firebaseDb.ref('store/products').set(products).catch(function() {
+          showToast('ذخیره آنلاین محصول ناموفق بود', 'error');
+        });
+      }
     }
     function saveCart() {
       localStorage.setItem('artico_cart', JSON.stringify(cart));
@@ -1396,6 +1490,11 @@
     }
     function saveSettings() {
       localStorage.setItem('artico_settings', JSON.stringify(settings));
+      if (firebaseDb) {
+        firebaseDb.ref('store/settings').set(settings).catch(function() {
+          showToast('ذخیره آنلاین تنظیمات ناموفق بود', 'error');
+        });
+      }
     }
 
     // ==================== FORMAT ====================
