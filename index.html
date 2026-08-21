@@ -1309,9 +1309,7 @@
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
-  <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
-<script>
+  <script>
     // ==================== STATE ====================
     const ADMIN_EMAIL = 'arashar749@gmail.com';
     const ADMIN_PASS = 'Arash@1391';
@@ -1326,29 +1324,27 @@
     };
 
     // ==================== INIT ====================
-    const firebaseConfig = {
-      apiKey: "AIzaSyDgT-t-uKfgIzVrxnLkK7VdefZa8ijHk20",
-      authDomain: "artico-store.firebaseapp.com",
-      databaseURL: "https://artico-store-default-rtdb.firebaseio.com",
-      projectId: "artico-store",
-      storageBucket: "artico-store.firebasestorage.app",
-      messagingSenderId: "289130112484",
-      appId: "1:289130112484:web:4b97a915d849af577ad3f1",
-      measurementId: "G-SDBEMWHS4P"
-    };
-
-    let firebaseDb = null;
-    try {
-      firebase.initializeApp(firebaseConfig);
-      firebaseDb = firebase.database();
-    } catch (e) {
-      console.error(e);
-    }
+    const CLOUD_URL = 'https://artico-store-default-rtdb.firebaseio.com/store';
 
     function asProductList(val) {
       if (!val) return [];
       if (Array.isArray(val)) return val.filter(Boolean);
       return Object.values(val).filter(Boolean);
+    }
+
+    async function cloudGet() {
+      const r = await fetch(CLOUD_URL + '.json', { cache: 'no-store' });
+      if (!r.ok) throw new Error('cloud get ' + r.status);
+      return r.json();
+    }
+
+    async function cloudPut(path, data) {
+      const r = await fetch(CLOUD_URL + path + '.json', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (!r.ok) throw new Error('cloud put ' + r.status);
     }
 
     function seedDemoProducts() {
@@ -1392,50 +1388,41 @@
       }
     }
 
-    async function initCloud() {
-      if (!firebaseDb) {
-        if (products.length === 0) {
-          seedDemoProducts();
-          localStorage.setItem('artico_products', JSON.stringify(products));
-          renderProducts();
-        }
-        return;
+    function applyCloudData(data) {
+      if (!data) return false;
+      const cloudProducts = asProductList(data.products);
+      let changed = false;
+      if (cloudProducts.length) {
+        products = cloudProducts;
+        localStorage.setItem('artico_products', JSON.stringify(products));
+        changed = true;
       }
+      if (data.settings) {
+        settings = Object.assign({}, settings, data.settings);
+        localStorage.setItem('artico_settings', JSON.stringify(settings));
+        changed = true;
+      }
+      if (changed) refreshStoreUI();
+      return cloudProducts.length > 0;
+    }
+
+    async function initCloud() {
       try {
-        const snap = await firebaseDb.ref('store').once('value');
-        const data = snap.val();
-        const cloudProducts = asProductList(data && data.products);
-        if (cloudProducts.length) {
-          products = cloudProducts;
+        const data = await cloudGet();
+        const hasCloud = applyCloudData(data);
+        if (!hasCloud) {
+          if (!products.length) seedDemoProducts();
           localStorage.setItem('artico_products', JSON.stringify(products));
-        } else if (products.length) {
-          await firebaseDb.ref('store/products').set(products);
-        } else {
-          seedDemoProducts();
-          localStorage.setItem('artico_products', JSON.stringify(products));
-          await firebaseDb.ref('store/products').set(products);
-        }
-        if (data && data.settings) {
-          settings = Object.assign({}, settings, data.settings);
-          localStorage.setItem('artico_settings', JSON.stringify(settings));
-        } else {
-          await firebaseDb.ref('store/settings').set(settings);
-        }
-        refreshStoreUI();
-        firebaseDb.ref('store/products').on('value', function(s2) {
-          const list = asProductList(s2.val());
-          if (!list.length) return;
-          products = list;
-          localStorage.setItem('artico_products', JSON.stringify(products));
+          await cloudPut('/products', products);
+          await cloudPut('/settings', settings);
           refreshStoreUI();
-        });
-        firebaseDb.ref('store/settings').on('value', function(s2) {
-          const val = s2.val();
-          if (!val) return;
-          settings = Object.assign({}, settings, val);
-          localStorage.setItem('artico_settings', JSON.stringify(settings));
-          updateSettingsUI();
-        });
+        }
+        setInterval(async function() {
+          try {
+            const fresh = await cloudGet();
+            applyCloudData(fresh);
+          } catch (e) {}
+        }, 8000);
       } catch (e) {
         console.error(e);
         if (products.length === 0) {
@@ -1443,7 +1430,7 @@
           localStorage.setItem('artico_products', JSON.stringify(products));
         }
         refreshStoreUI();
-        showToast('اتصال به اینترنت برای همگام‌سازی برقرار نشد', 'error');
+        showToast('اتصال آنلاین برقرار نشد. فیلترشکن را روشن کن و صفحه را تازه کن', 'error');
       }
     }
 
@@ -1475,11 +1462,9 @@
 
     function saveProducts() {
       localStorage.setItem('artico_products', JSON.stringify(products));
-      if (firebaseDb) {
-        firebaseDb.ref('store/products').set(products).catch(function() {
-          showToast('ذخیره آنلاین محصول ناموفق بود', 'error');
-        });
-      }
+      cloudPut('/products', products).catch(function() {
+        showToast('ذخیره آنلاین محصول ناموفق بود. فیلترشکن را روشن کن', 'error');
+      });
     }
     function saveCart() {
       localStorage.setItem('artico_cart', JSON.stringify(cart));
@@ -1490,11 +1475,9 @@
     }
     function saveSettings() {
       localStorage.setItem('artico_settings', JSON.stringify(settings));
-      if (firebaseDb) {
-        firebaseDb.ref('store/settings').set(settings).catch(function() {
-          showToast('ذخیره آنلاین تنظیمات ناموفق بود', 'error');
-        });
-      }
+      cloudPut('/settings', settings).catch(function() {
+        showToast('ذخیره آنلاین تنظیمات ناموفق بود. فیلترشکن را روشن کن', 'error');
+      });
     }
 
     // ==================== FORMAT ====================
